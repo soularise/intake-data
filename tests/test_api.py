@@ -32,15 +32,15 @@ def test_extract_missing_file_returns_422(client):
     assert resp.status_code == 422
 
 
-def test_extract_invalid_base64_returns_500(client):
+def test_extract_invalid_base64_returns_400(client):
     resp = client.post("/v1/extract", json={
         "document_type": "intake_form",
         "file": "!!!not-base64!!!",
     })
-    assert resp.status_code == 500
+    assert resp.status_code == 400
     data = resp.json()
     assert data["success"] is False
-    assert "EXTRACTION_ERROR" in data["error"]["code"]
+    assert "INVALID_INPUT" in data["error"]["code"]
     assert "sk-ant" not in data["error"]["message"]
 
 

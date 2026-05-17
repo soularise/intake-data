@@ -43,6 +43,7 @@ class BaseExtractor(ABC):
         response = await self.client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2000,
+            timeout=30.0,
             system=[
                 {
                     "type": "text",
@@ -59,10 +60,12 @@ class BaseExtractor(ABC):
         )
 
         processing_time = int((time.time() - start_time) * 1000)
-        raw_text = response.content[0].text if response.content else ""
+        raw_text = next(
+            (block.text for block in response.content if hasattr(block, "text")),
+            ""
+        )
 
         return {
             "fields": self.parse_llm_response(raw_text),
             "processing_time_ms": processing_time,
-            "raw_response": raw_text,
         }

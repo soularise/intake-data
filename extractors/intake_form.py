@@ -1,11 +1,7 @@
-import anthropic
 from extractors.base import BaseExtractor
 
 
 class IntakeFormExtractor(BaseExtractor):
-    def __init__(self, client: anthropic.AsyncAnthropic):
-        super().__init__(client)
-
     def get_system_prompt(self) -> str:
         return """You are a document extraction specialist for eldercare intake forms.
 

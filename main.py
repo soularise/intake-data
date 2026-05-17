@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -14,8 +15,6 @@ from schemas import DocumentType, ExtractRequest
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 audit_logger = logging.getLogger("intakedata.audit")
-
-_SUPPORTED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
 
 
 @asynccontextmanager
@@ -51,7 +50,11 @@ async def audit_middleware(request: Request, call_next):
     response = await call_next(request)
     duration_ms = int((time.time() - start_time) * 1000)
 
-    api_key = request.headers.get("x-api-key", "anonymous")
+    raw_api_key = request.headers.get("x-api-key", "")
+    if raw_api_key:
+        api_key_log = hashlib.sha256(raw_api_key.encode()).hexdigest()[:12]
+    else:
+        api_key_log = "anonymous"
     ip_raw = request.client.host if request.client else "unknown"
     if ip_raw not in ("unknown", ""):
         parts = ip_raw.split(".")
@@ -66,7 +69,7 @@ async def audit_middleware(request: Request, call_next):
         request.url.path,
         response.status_code,
         duration_ms,
-        (api_key[:8] + "...") if len(api_key) > 8 else api_key,
+        api_key_log,
         masked_ip,
         request.headers.get("user-agent", "unknown")[:100],
     )
@@ -137,9 +140,18 @@ async def extract_document(request_body: ExtractRequest, request: Request):
     try:
         file_bytes = base64.b64decode(request_body.file)
     except Exception:
-        return JSONResponse(status_code=500, content={
+        return JSONResponse(status_code=400, content={
             "success": False,
-            "error": {"code": "EXTRACTION_ERROR", "message": "Invalid base64 encoding"},
+            "error": {"code": "INVALID_INPUT", "message": "Invalid base64 encoding"},
+        })
+
+    if len(file_bytes) > settings.MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={
+            "success": False,
+            "error": {
+                "code": "PAYLOAD_TOO_LARGE",
+                "message": f"File exceeds {settings.MAX_UPLOAD_BYTES // 1_048_576}MB limit",
+            },
         })
 
     mime_type = _detect_mime_type(file_bytes)
@@ -159,7 +171,7 @@ async def extract_document(request_body: ExtractRequest, request: Request):
         fields = result["fields"]
         processing_time = int((time.time() - start_time) * 1000)
 
-        if any(k.startswith("error") for k in fields):
+        if "error" in fields:
             return JSONResponse(status_code=422, content={
                 "success": False,
                 "error": {"code": "PARSE_ERROR", "message": "Could not parse extraction response"},
