@@ -123,3 +123,53 @@ def test_insurance_card_has_system_prompt():
     assert "insurance_company" in prompt
     assert "rx_bin" in prompt
     assert "Return ONLY valid JSON" in prompt
+
+
+@pytest.mark.integration
+async def test_intake_form_integration(api_key, sample_intake_pdf):
+    """Live Claude call: verifies extraction against known fixture content."""
+    import anthropic as ant
+    from extractors.intake_form import IntakeFormExtractor
+    from tests.conftest import INTAKE_1_GROUND_TRUTH
+
+    client = ant.AsyncAnthropic(api_key=api_key)
+    extractor = IntakeFormExtractor(client)
+    result = await extractor.extract(sample_intake_pdf.read_bytes(), "application/pdf")
+
+    fields = result["fields"]
+    assert "error" not in fields, f"Parser error: {fields.get('error')}"
+
+    for field, expected_value in INTAKE_1_GROUND_TRUTH.items():
+        assert field in fields, f"Missing field: {field}"
+        assert fields[field]["confidence"] > 0.5, f"Low confidence on {field}"
+        actual = fields[field]["value"]
+        assert actual is not None, f"{field} is null"
+        assert expected_value.lower() in actual.lower(), (
+            f"{field}: expected '{expected_value}' in '{actual}'"
+        )
+
+    assert result["processing_time_ms"] < 15_000, "Extraction took more than 15 seconds"
+
+
+@pytest.mark.integration
+async def test_insurance_card_integration(api_key, sample_card_png):
+    """Live Claude call: verifies extraction against known fixture content."""
+    import anthropic as ant
+    from extractors.insurance_card import InsuranceCardExtractor
+    from tests.conftest import CARD_1_GROUND_TRUTH
+
+    client = ant.AsyncAnthropic(api_key=api_key)
+    extractor = InsuranceCardExtractor(client)
+    result = await extractor.extract(sample_card_png.read_bytes(), "image/png")
+
+    fields = result["fields"]
+    assert "error" not in fields
+
+    for field, expected_value in CARD_1_GROUND_TRUTH.items():
+        assert field in fields
+        assert fields[field]["confidence"] > 0.5
+        actual = fields[field]["value"]
+        assert actual is not None
+        assert expected_value.lower() in actual.lower(), (
+            f"{field}: expected '{expected_value}' in '{actual}'"
+        )
