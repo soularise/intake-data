@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IntakeData — Extraction Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>[x-cloak]{display:none}</style>
+</head>
+<body class="bg-slate-50 min-h-screen" x-data="app()" x-cloak>
+
+  <!-- Header -->
+  <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-semibold tracking-tight">IntakeData</h1>
+      <p class="text-slate-400 text-sm">Eldercare Document Extraction</p>
+    </div>
+    <button x-show="result || error" @click="reset()"
+      class="text-sm text-slate-300 hover:text-white transition">
+      ← Upload another
+    </button>
+  </header>
+
+  <!-- API URL bar -->
+  <div class="bg-slate-800 px-6 py-2 flex items-center gap-3">
+    <label class="text-slate-400 text-xs font-mono whitespace-nowrap">API URL</label>
+    <input x-model="apiUrl" type="text"
+      class="flex-1 max-w-lg bg-slate-700 text-slate-200 text-xs font-mono rounded px-3 py-1.5 border border-slate-600 focus:outline-none focus:border-blue-400">
+  </div>
+
+  <main class="max-w-3xl mx-auto px-4 py-10">
+
+    <!-- Upload card -->
+    <div x-show="!result && !error" class="bg-white rounded-xl shadow-md p-8">
+      <h2 class="text-lg font-semibold text-slate-800 mb-6">Extract Document Fields</h2>
+
+      <!-- Doc type selector -->
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-slate-600 mb-2">Document Type</label>
+        <div class="flex rounded-lg border border-slate-200 overflow-hidden w-fit">
+          <button @click="docType = 'intake_form'"
+            :class="docType === 'intake_form' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            class="px-5 py-2 text-sm font-medium transition">
+            Patient Intake Form
+          </button>
+          <button @click="docType = 'insurance_card'"
+            :class="docType === 'insurance_card' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            class="px-5 py-2 text-sm font-medium border-l border-slate-200 transition">
+            Insurance Card
+          </button>
+        </div>
+      </div>
+
+      <!-- Drop zone -->
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-slate-600 mb-2">Document File</label>
+        <div
+          @dragover.prevent="dragging = true"
+          @dragleave.prevent="dragging = false"
+          @drop.prevent="handleDrop($event)"
+          @click="$refs.fileInput.click()"
+          :class="dragging ? 'border-blue-500 bg-blue-50' : file ? 'border-green-400 bg-green-50' : 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-slate-100'"
+          class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all">
+
+          <div x-show="!file">
+            <div class="text-4xl mb-3">📄</div>
+            <p class="text-slate-600 font-medium">Drop a file here, or click to browse</p>
+            <p class="text-slate-400 text-sm mt-1">PDF, PNG, JPG, WebP</p>
+          </div>
+
+          <div x-show="file" class="flex items-center justify-center gap-3">
+            <span class="text-green-500 text-2xl">✓</span>
+            <div class="text-left">
+              <p class="font-medium text-slate-800" x-text="fileName"></p>
+              <p class="text-sm text-slate-400" x-text="fileSize"></p>
+            </div>
+            <button @click.stop="file = null; fileName = ''; fileSize = ''; oversized = false"
+              class="ml-2 text-slate-300 hover:text-red-400 text-lg leading-none transition">✕</button>
+          </div>
+
+          <input type="file" x-ref="fileInput" @change="handleFile($event)"
+            accept=".pdf,.png,.jpg,.jpeg,.webp" class="hidden">
+        </div>
+        <p x-show="oversized" class="text-amber-600 text-sm mt-2">
+          ⚠️ File is over 8 MB — the API limit is 10 MB.
+        </p>
+      </div>
+
+      <!-- Submit button -->
+      <button @click="extract()" :disabled="!file || loading"
+        :class="!file || loading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'"
+        class="w-full py-3 rounded-lg font-semibold text-sm transition flex items-center justify-center gap-2">
+        <svg x-show="loading" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span x-text="loading ? 'Extracting…' : 'Extract Fields'"></span>
+      </button>
+    </div>
+
+    <!-- Error state -->
+    <div x-show="error" class="bg-white rounded-xl shadow-md p-8">
+      <div class="bg-red-50 border border-red-200 rounded-lg p-5 mb-6">
+        <p class="font-semibold text-red-700 mb-1" x-text="'Error: ' + (error?.code || 'Unknown')"></p>
+        <p class="text-red-600 text-sm" x-text="error?.message || 'An unexpected error occurred'"></p>
+      </div>
+      <button @click="reset()"
+        class="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">
+        Try again
+      </button>
+    </div>
+
+    <!-- Results panel -->
+    <div x-show="result" class="space-y-4">
+
+      <!-- Stats strip -->
+      <div class="bg-white rounded-xl shadow-md p-5 flex flex-wrap items-center gap-6">
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-slate-500">Confidence</span>
+          <span :class="confidenceClass(result?.confidence)"
+            class="px-3 py-1 rounded-full text-sm font-bold text-white"
+            x-text="result ? Math.round(result.confidence * 100) + '%' : ''"></span>
+        </div>
+        <div class="text-sm text-slate-500">
+          <span class="text-slate-800 font-medium" x-text="result?.processing_time_ms + ' ms'"></span>
+          processing time
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 capitalize"
+          x-text="(result?.document_type || '').replace(/_/g, ' ')"></span>
+      </div>
+
+      <!-- Key fields -->
+      <div class="bg-white rounded-xl shadow-md p-6">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">Key Fields</h3>
+        <div class="divide-y divide-slate-100">
+          <template x-for="fieldName in keyFields()" :key="fieldName">
+            <div class="flex items-center gap-4 py-3">
+              <span class="text-sm text-slate-500 w-44 shrink-0 capitalize"
+                x-text="fieldName.replace(/_/g, ' ')"></span>
+              <span class="text-sm font-medium flex-1"
+                :class="result?.fields?.[fieldName]?.value ? 'text-slate-800' : 'text-slate-300'"
+                x-text="result?.fields?.[fieldName]?.value ?? '—'"></span>
+              <span x-show="result?.fields?.[fieldName]"
+                :class="confidenceClass(result?.fields?.[fieldName]?.confidence)"
+                class="text-xs font-bold text-white px-2 py-0.5 rounded-full shrink-0"
+                x-text="result?.fields?.[fieldName]?.confidence != null
+                  ? Math.round(result.fields[fieldName].confidence * 100) + '%' : ''">
+              </span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Missing fields callout -->
+      <div x-show="result?.missing_fields?.length > 0"
+        class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <p class="text-sm font-semibold text-amber-700 mb-1">Low confidence on required fields</p>
+        <p class="text-sm text-amber-600"
+          x-text="result?.missing_fields?.map(f => f.replace(/_/g, ' ')).join(', ')"></p>
+      </div>
+
+      <!-- All fields accordion -->
+      <div class="bg-white rounded-xl shadow-md overflow-hidden">
+        <button @click="showAllFields = !showAllFields"
+          class="w-full flex items-center justify-between px-6 py-4 text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
+          <span>View all fields</span>
+          <span :class="showAllFields ? 'rotate-180' : ''"
+            class="transition-transform duration-200 text-slate-400 text-xs">▼</span>
+        </button>
+        <div x-show="showAllFields" x-transition class="border-t border-slate-100">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-1/3">Field</th>
+                <th class="text-left px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Value</th>
+                <th class="text-right px-6 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-28">Confidence</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <template x-for="[name, field] in allFieldsSorted()" :key="name">
+                <tr class="hover:bg-slate-50 transition">
+                  <td class="px-6 py-3 text-slate-500 capitalize"
+                    x-text="name.replace(/_/g, ' ')"></td>
+                  <td class="px-6 py-3 font-medium"
+                    :class="field?.value ? 'text-slate-800' : 'text-slate-300'"
+                    x-text="field?.value ?? '—'"></td>
+                  <td class="px-6 py-3 text-right">
+                    <span :class="confidenceClass(field?.confidence)"
+                      class="text-xs font-bold text-white px-2 py-0.5 rounded-full"
+                      x-text="field?.confidence != null
+                        ? Math.round(field.confidence * 100) + '%' : ''"></span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    function app() {
+      return {
+        apiUrl: 'https://intake-data-git-main-soularises-projects.vercel.app',
+        docType: 'intake_form',
+        file: null,
+        fileName: '',
+        fileSize: '',
+        oversized: false,
+        dragging: false,
+        loading: false,
+        result: null,
+        error: null,
+        showAllFields: false,
+
+        KEY_FIELDS: {
+          intake_form: [
+            'patient_name', 'date_of_birth', 'gender', 'phone_primary',
+            'insurance_provider', 'policy_number', 'subscriber_name', 'subscriber_relationship',
+          ],
+          insurance_card: [
+            'insurance_company', 'member_name', 'member_id', 'group_number',
+            'plan_type', 'rx_bin', 'customer_service_phone',
+          ],
+        },
+
+        MIME_MAP: {
+          pdf: 'application/pdf',
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          webp: 'image/webp',
+        },
+
+        handleFile(e) {
+          const f = e.target.files[0];
+          if (f) this.setFile(f);
+        },
+
+        handleDrop(e) {
+          this.dragging = false;
+          const f = e.dataTransfer.files[0];
+          if (f) this.setFile(f);
+        },
+
+        setFile(f) {
+          const ext = f.name.split('.').pop().toLowerCase();
+          if (!this.MIME_MAP[ext]) {
+            alert('Unsupported file type. Please upload a PDF, PNG, JPG, or WebP.');
+            return;
+          }
+          this.file = f;
+          this.fileName = f.name;
+          this.fileSize = (f.size / 1024 / 1024).toFixed(2) + ' MB';
+          this.oversized = f.size > 8 * 1024 * 1024;
+        },
+
+        async extract() {
+          if (!this.file || this.loading) return;
+          this.loading = true;
+          this.result = null;
+          this.error = null;
+
+          try {
+            const base64 = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = e => resolve(e.target.result.split(',')[1]);
+              reader.onerror = reject;
+              reader.readAsDataURL(this.file);
+            });
+
+            const res = await fetch(
+              this.apiUrl.replace(/\/$/, '') + '/v1/extract',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ document_type: this.docType, file: base64 }),
+              }
+            );
+
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+              this.error = data.error || { code: 'HTTP_' + res.status, message: 'Request failed' };
+            } else {
+              this.result = data;
+              this.showAllFields = false;
+            }
+          } catch (err) {
+            this.error = { code: 'NETWORK_ERROR', message: err.message };
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        reset() {
+          this.file = null;
+          this.fileName = '';
+          this.fileSize = '';
+          this.oversized = false;
+          this.result = null;
+          this.error = null;
+          this.showAllFields = false;
+        },
+
+        keyFields() {
+          return this.KEY_FIELDS[this.result?.document_type || this.docType] || [];
+        },
+
+        allFieldsSorted() {
+          if (!this.result?.fields) return [];
+          return Object.entries(this.result.fields)
+            .sort((a, b) => (b[1]?.confidence ?? 0) - (a[1]?.confidence ?? 0));
+        },
+
+        confidenceClass(score) {
+          if (score == null) return 'bg-slate-300';
+          if (score >= 0.8) return 'bg-green-500';
+          if (score >= 0.5) return 'bg-amber-500';
+          return 'bg-red-500';
+        },
+      };
+    }
+  </script>
+</body>
+</html>
