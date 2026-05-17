@@ -1,0 +1,62 @@
+import pytest
+import base64
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-placeholder-xxxxx")
+    from importlib import reload
+    import config
+    reload(config)
+    from main import app
+    return TestClient(app)
+
+
+def test_health(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy"
+
+
+def test_list_document_types(client):
+    resp = client.get("/v1/document_types")
+    assert resp.status_code == 200
+    types = [t["type"] for t in resp.json()["document_types"]]
+    assert "intake_form" in types
+    assert "insurance_card" in types
+
+
+def test_extract_missing_file_returns_422(client):
+    resp = client.post("/v1/extract", json={"document_type": "intake_form"})
+    assert resp.status_code == 422
+
+
+def test_extract_invalid_base64_returns_500(client):
+    resp = client.post("/v1/extract", json={
+        "document_type": "intake_form",
+        "file": "!!!not-base64!!!",
+    })
+    assert resp.status_code == 500
+    data = resp.json()
+    assert data["success"] is False
+    assert "EXTRACTION_ERROR" in data["error"]["code"]
+    assert "sk-ant" not in data["error"]["message"]
+
+
+def test_extract_unknown_mime_type_returns_400(client):
+    zip_bytes = b"PK\x03\x04" + b"\x00" * 100
+    encoded = base64.b64encode(zip_bytes).decode()
+    resp = client.post("/v1/extract", json={
+        "document_type": "intake_form",
+        "file": encoded,
+    })
+    assert resp.status_code == 400
+    assert resp.json()["success"] is False
+
+
+def test_security_headers_present(client):
+    resp = client.get("/health")
+    assert resp.headers.get("x-frame-options") == "DENY"
+    assert "no-store" in resp.headers.get("cache-control", "")
+    assert resp.headers.get("strict-transport-security") is not None
