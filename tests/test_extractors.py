@@ -103,3 +103,23 @@ def test_parse_llm_response_invalid_returns_error(mock_client):
     extractor = Concrete(mock_client)
     result = extractor.parse_llm_response("not json at all")
     assert "error" in result
+
+
+def test_intake_form_has_system_prompt():
+    from unittest.mock import MagicMock
+    from extractors.intake_form import IntakeFormExtractor
+    extractor = IntakeFormExtractor(MagicMock())
+    prompt = extractor.get_system_prompt()
+    assert "patient_name" in prompt
+    assert "YYYY-MM-DD" in prompt
+    assert "Return ONLY valid JSON" in prompt
+
+
+def test_insurance_card_has_system_prompt():
+    from unittest.mock import MagicMock
+    from extractors.insurance_card import InsuranceCardExtractor
+    extractor = InsuranceCardExtractor(MagicMock())
+    prompt = extractor.get_system_prompt()
+    assert "insurance_company" in prompt
+    assert "rx_bin" in prompt
+    assert "Return ONLY valid JSON" in prompt
