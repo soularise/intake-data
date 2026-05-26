@@ -90,9 +90,16 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'"
-    )
+    if request.url.path in ("/", "/index.html"):
+        csp = (
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
+            "frame-ancestors 'none'"
+        )
+    else:
+        csp = "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'"
+    response.headers["Content-Security-Policy"] = csp
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
