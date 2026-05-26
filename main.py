@@ -120,6 +120,7 @@ def _get_required_fields(document_type: DocumentType) -> list:
 
 
 @app.get("/")
+@app.get("/index.html")
 async def root():
     return FileResponse("index.html")
 
