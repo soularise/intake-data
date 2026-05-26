@@ -8,7 +8,7 @@ from typing import Optional
 import anthropic
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from config import settings
 from extractors import get_extractor
@@ -121,7 +121,7 @@ def _get_required_fields(document_type: DocumentType) -> list:
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "IntakeData API"}
+    return FileResponse("index.html")
 
 
 @app.get("/health")
