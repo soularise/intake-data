@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import anthropic
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 from config import settings
@@ -106,6 +107,17 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(key: Optional[str] = Security(_api_key_header)) -> str:
+    import config as _config
+    expected = _config.settings.EXTRACTION_API_KEY
+    if not expected or key != expected:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return key
+
+
 def _detect_mime_type(file_bytes: bytes) -> Optional[str]:
     if file_bytes[:4] == b"%PDF":
         return "application/pdf"
@@ -115,6 +127,8 @@ def _detect_mime_type(file_bytes: bytes) -> Optional[str]:
         return "image/jpeg"
     if file_bytes[:4] == b"RIFF" and file_bytes[8:12] == b"WEBP":
         return "image/webp"
+    if len(file_bytes) >= 8 and file_bytes[4:8] == b"ftyp":
+        return "image/heic"
     return None
 
 
@@ -219,6 +233,42 @@ async def extract_document(request_body: ExtractRequest, request: Request):
             "success": False,
             "error": {"code": "EXTRACTION_ERROR", "message": "An unexpected error occurred"},
         })
+
+
+class ConsumerBillRequest(BaseModel):
+    file: str  # base64-encoded document
+
+
+@app.post("/extract/consumer-bill")
+async def extract_consumer_bill(
+    request_body: ConsumerBillRequest,
+    request: Request,
+    _: str = Depends(require_api_key),
+):
+    try:
+        file_bytes = base64.b64decode(request_body.file)
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            "success": False,
+            "error": {"code": "INVALID_INPUT", "message": "Invalid base64 encoding"},
+        })
+
+    mime_type = _detect_mime_type(file_bytes)
+    if mime_type is None:
+        return JSONResponse(status_code=400, content={
+            "success": False,
+            "error": {
+                "code": "UNSUPPORTED_FILE_TYPE",
+                "message": "File type not recognized. Supported: PDF, JPEG, PNG, WebP, HEIC",
+            },
+        })
+
+    from extractors.consumer_bill import ConsumerBillExtractor
+    anthropic_client = getattr(request.app.state, "anthropic_client", None) or \
+        anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    extractor = ConsumerBillExtractor(anthropic_client)
+    result = await extractor.extract(file_bytes, mime_type)
+    return {"success": True, "data": result}
 
 
 class WaitlistRequest(BaseModel):
