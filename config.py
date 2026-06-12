@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     PORT: int = 8000
     MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024  # 10MB
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    EXTRACTION_API_KEY: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

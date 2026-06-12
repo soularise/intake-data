@@ -9,6 +9,7 @@ import anthropic
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
 from config import settings
 from extractors import get_extractor
@@ -93,8 +94,8 @@ async def security_headers_middleware(request: Request, call_next):
     if request.url.path in ("/", "/index.html"):
         csp = (
             "default-src 'self'; "
-            "script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
             "frame-ancestors 'none'"
         )
     else:
@@ -218,6 +219,30 @@ async def extract_document(request_body: ExtractRequest, request: Request):
             "success": False,
             "error": {"code": "EXTRACTION_ERROR", "message": "An unexpected error occurred"},
         })
+
+
+class WaitlistRequest(BaseModel):
+    email: str
+
+
+@app.post("/waitlist")
+async def join_waitlist(body: WaitlistRequest):
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid email"})
+
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        logging.warning("Waitlist signup attempted but Supabase not configured: %s", email)
+        return {"success": True}
+
+    try:
+        from supabase import create_client
+        sb = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+        sb.table("waitlist").insert({"email": email}).execute()
+    except Exception:
+        pass  # Duplicate email or transient error — return success either way
+
+    return {"success": True}
 
 
 if __name__ == "__main__":
