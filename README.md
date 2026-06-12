@@ -1,64 +1,24 @@
 # IntakeData
 
-HIPAA-ready document extraction API for eldercare. Extracts structured fields from patient intake forms and insurance cards using Claude.
+IntakeData is a caregiver-focused document exception detector. Families forward bills, statements, and notices to a unique address; IntakeData extracts the important fields and flags things that need attention.
 
-**Live:** https://intake-data.vercel.app
+The current repo has two parts:
 
----
+- `main.py` and `extractors/` - FastAPI extraction service using Claude. This is intended to be called server-to-server.
+- `consumer/` - Next.js consumer app with Better Auth, Supabase/Postgres, private document storage, inbound email ingestion, exception detection, and a dashboard.
 
-## What it does
+## Current MVP Flow
 
-Accepts a base64-encoded PDF or image, runs it through Claude, and returns structured JSON with per-field confidence scores. Supports two document types:
+1. A caregiver signs up in the consumer app.
+2. They add a person to monitor.
+3. The app creates a unique forwarding address under `docs.intakedata.com`.
+4. An inbound email provider posts accepted attachments to `/api/inbound-email`.
+5. The consumer app uploads the raw document to private Supabase Storage.
+6. The consumer app calls the internal extraction service with `X-API-Key`.
+7. The app stores extracted fields and detected exceptions.
+8. The dashboard shows unresolved exceptions for the signed-in user.
 
-- **Patient Intake Form** — 20 fields including patient name, DOB, phone, insurance provider, policy number, subscriber info
-- **Insurance Card** — 15 fields including insurance company, member name/ID, group number, plan type, RX BIN, customer service phone
-
----
-
-## API
-
-### `GET /health`
-Returns `{"status": "healthy"}`.
-
-### `GET /v1/document_types`
-Lists supported document types and field counts.
-
-### `POST /v1/extract`
-
-**Request body:**
-```json
-{
-  "document_type": "intake_form",
-  "file": "<base64-encoded file, no data URI prefix>"
-}
-```
-
-`document_type` must be `intake_form` or `insurance_card`.
-
-Supported file types: PDF, PNG, JPEG, WebP. Max size: 10 MB.
-
-**Response:**
-```json
-{
-  "success": true,
-  "document_type": "intake_form",
-  "processing_time_ms": 1842,
-  "confidence": 0.91,
-  "fields": {
-    "patient_name": { "value": "Robert James Miller", "confidence": 0.98, "raw_text": "Robert James Miller" },
-    "date_of_birth": { "value": "1942-06-15", "confidence": 0.95, "raw_text": "06/15/1942" }
-  },
-  "missing_fields": []
-}
-```
-
-`missing_fields` lists required fields where confidence fell below 0.5.
-
----
-
-## Local development
-
-**Requirements:** Python 3.11+, an Anthropic API key.
+## Python Extraction Service
 
 ```bash
 python -m venv venv
@@ -66,51 +26,48 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Add your ANTHROPIC_API_KEY to .env
+# Set ANTHROPIC_API_KEY and EXTRACTION_API_KEY
 
 uvicorn main:app --reload
-# API available at http://localhost:8000
 ```
 
-### Interactive test UI
+Available endpoints:
 
-Open `test.html` directly in a browser. It defaults to the live Vercel URL — change the API URL field at the top to `http://localhost:8000` to hit your local server instead.
+- `GET /health`
+- `GET /v1/document_types`
+- `POST /v1/extract` - legacy intake/insurance extraction, protected by `X-API-Key`.
+- `POST /extract/consumer-bill` - consumer bill extraction, protected by `X-API-Key`.
 
----
+Supported file types are PDF, PNG, JPEG, WebP, and HEIC for the consumer bill endpoint. Uploads are capped by `MAX_UPLOAD_BYTES`.
 
-## Tests
+## Consumer App
+
+See [consumer/README.md](consumer/README.md).
 
 ```bash
-# Unit tests (no external dependencies)
-pytest -m "not integration"
-
-# Integration tests (requires ANTHROPIC_API_KEY and sample fixtures)
-python scripts/create_test_fixtures.py
-pytest -m integration
+cd consumer
+cp .env.example .env.local
+npm install
+npm run dev
 ```
 
----
+## Checks
 
-## Deployment
+```bash
+./venv/bin/python -m pytest -q
 
-Deployed via Vercel. Push to `main` triggers a deploy automatically.
-
-`vercel.json` routes all requests to the FastAPI app via `@vercel/python`. The landing page (`index.html`) is served from the `GET /` route.
-
-**Required environment variable in Vercel:** `ANTHROPIC_API_KEY`
-
----
-
-## Project structure
-
+cd consumer
+npm test -- --run
+npm run lint
+npm run build
 ```
-main.py          — FastAPI app, routes, middleware
-config.py        — Settings (pydantic-settings) and HIPAA constants
-schemas.py       — Request/response models
-extractors/      — Document-type-specific extraction logic
-tests/           — pytest suite
-scripts/         — Test fixture generation
-index.html       — Marketing landing page (served at /)
-test.html        — Interactive extraction console
-vercel.json      — Vercel deployment config
-```
+
+## Deployment Notes
+
+- The Python extraction service should stay internal or API-key protected.
+- The consumer app should own `intakedata.com`.
+- The forwarding subdomain should be `docs.intakedata.com`.
+- `/api/inbound-email` is provider-agnostic and requires `INBOUND_EMAIL_WEBHOOK_SECRET`.
+- Outbound exception alerts are optional until an email provider is configured.
+
+The existing root `vercel.json` deploys the Python service. The consumer app needs its own Vercel project or an adjusted monorepo deployment configuration.

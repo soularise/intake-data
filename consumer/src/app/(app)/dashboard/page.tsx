@@ -2,7 +2,7 @@ import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { consumerExceptions, consumerDocuments, elders } from '@/lib/db/schema'
 import { headers } from 'next/headers'
-import { eq, desc, and } from 'drizzle-orm'
+import { eq, desc, and, inArray } from 'drizzle-orm'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
@@ -31,7 +31,10 @@ export default async function DashboardPage() {
         })
         .from(consumerExceptions)
         .leftJoin(consumerDocuments, eq(consumerExceptions.documentId, consumerDocuments.id))
-        .where(eq(consumerExceptions.isResolved, false))
+        .where(and(
+          eq(consumerExceptions.isResolved, false),
+          inArray(consumerExceptions.elderId, elderIds),
+        ))
         .orderBy(desc(consumerExceptions.createdAt))
         .limit(20)
     : []

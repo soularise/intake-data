@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ elder })
 }
 
-export async function GET(_req: NextRequest) {
+export async function GET() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

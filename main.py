@@ -165,7 +165,11 @@ async def list_document_types():
 
 
 @app.post("/v1/extract")
-async def extract_document(request_body: ExtractRequest, request: Request):
+async def extract_document(
+    request_body: ExtractRequest,
+    request: Request,
+    _: str = Depends(require_api_key),
+):
     start_time = time.time()
 
     try:

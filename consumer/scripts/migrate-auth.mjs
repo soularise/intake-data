@@ -1,12 +1,11 @@
 import { createRequire } from 'module'
+import { getMigrationDatabaseUrl } from './database-url.mjs'
 const require = createRequire(import.meta.url)
 const dotenv = require('dotenv')
 dotenv.config({ path: '.env.local' })
 
 const postgres = (await import('postgres')).default
-const parsed = new URL(process.env.DATABASE_URL)
-const url = `postgresql://postgres:${parsed.password}@db.okenspgfpypiyamniczw.supabase.co:5432/postgres`
-const sql = postgres(url, { max: 1, ssl: 'require' })
+const sql = postgres(getMigrationDatabaseUrl(), { max: 1, ssl: 'require' })
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "user" (
