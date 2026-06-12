@@ -1,0 +1,65 @@
+import { createRequire } from 'module'
+const require = createRequire(import.meta.url)
+const dotenv = require('dotenv')
+dotenv.config({ path: '.env.local' })
+
+const postgres = (await import('postgres')).default
+const parsed = new URL(process.env.DATABASE_URL)
+const url = `postgresql://postgres:${parsed.password}@db.okenspgfpypiyamniczw.supabase.co:5432/postgres`
+const sql = postgres(url, { max: 1, ssl: 'require' })
+
+const statements = [
+  `CREATE TABLE IF NOT EXISTS "user" (
+    "id" text PRIMARY KEY NOT NULL,
+    "name" text NOT NULL,
+    "email" text NOT NULL UNIQUE,
+    "email_verified" boolean DEFAULT false NOT NULL,
+    "image" text,
+    "created_at" timestamp DEFAULT now() NOT NULL,
+    "updated_at" timestamp DEFAULT now() NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "session" (
+    "id" text PRIMARY KEY NOT NULL,
+    "expires_at" timestamp NOT NULL,
+    "token" text NOT NULL UNIQUE,
+    "created_at" timestamp DEFAULT now() NOT NULL,
+    "updated_at" timestamp DEFAULT now() NOT NULL,
+    "ip_address" text,
+    "user_agent" text,
+    "user_id" text NOT NULL REFERENCES "user"("id") ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("user_id")`,
+  `CREATE TABLE IF NOT EXISTS "account" (
+    "id" text PRIMARY KEY NOT NULL,
+    "account_id" text NOT NULL,
+    "provider_id" text NOT NULL,
+    "user_id" text NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+    "access_token" text,
+    "refresh_token" text,
+    "id_token" text,
+    "access_token_expires_at" timestamp,
+    "refresh_token_expires_at" timestamp,
+    "scope" text,
+    "password" text,
+    "created_at" timestamp DEFAULT now() NOT NULL,
+    "updated_at" timestamp DEFAULT now() NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("user_id")`,
+  `CREATE TABLE IF NOT EXISTS "verification" (
+    "id" text PRIMARY KEY NOT NULL,
+    "identifier" text NOT NULL,
+    "value" text NOT NULL,
+    "expires_at" timestamp NOT NULL,
+    "created_at" timestamp DEFAULT now() NOT NULL,
+    "updated_at" timestamp DEFAULT now() NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier")`,
+]
+
+console.log(`Running ${statements.length} statements...`)
+for (const stmt of statements) {
+  console.log(`  ${stmt.trim().slice(0, 60).replace(/\n/g, ' ')}...`)
+  await sql.unsafe(stmt)
+}
+await sql.end()
+console.log('Better Auth tables created.')
